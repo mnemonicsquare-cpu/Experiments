@@ -1,0 +1,63 @@
+name: Tactical simulator — test, build and publish
+on:
+  push:
+    branches: [main]
+    paths: ['tactical-simulator/**', '.github/workflows/tactical-pages.yml']
+  pull_request:
+    paths: ['tactical-simulator/**', '.github/workflows/tactical-pages.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: tactical-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tactical-simulator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tactical-simulator/package-lock.json
+      - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install Pillow==11.3.0
+      - run: npm run assets
+      - run: npm run test
+      - run: npm run build
+      - run: npm run simulate -- --battles 5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: balance-report
+          path: tactical-simulator/reports/
+      - name: Assemble isolated site
+        run: |
+          mkdir -p ../_site/tactical-simulator
+          cp -R dist/. ../_site/tactical-simulator/
+          cp ../index.html ../_site/index.html
+          touch ../_site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/deploy-pages@v4
+        id: deployment
